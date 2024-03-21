@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -56,10 +57,23 @@ func DialTLSCredsOpts(certFile string) ([]grpc.DialOption, error) {
 	if certFile == "" {
 		opts = append(opts, grpc.WithInsecure())
 	} else {
-		creds, err := credentials.NewClientTLSFromFile(certFile, "")
+		//		creds, err := credentials.NewClientTLSFromFile(certFile, "")
+		//		if err != nil {
+		//			return nil, fmt.Errorf("failed to load credentials: %v", err)
+		//		}
+		b, err := ioutil.ReadFile(certFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load credentials: %v", err)
 		}
+		cp := x509.NewCertPool()
+		if !cp.AppendCertsFromPEM(b) {
+			return nil, fmt.Errorf("credentials: failed to append root ca certificates")
+		}
+		w, err := os.OpenFile("mykeys.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			return nil, fmt.Errorf("failt to create key file")
+		}
+		creds := credentials.NewTLS(&tls.Config{ServerName: "", RootCAs: cp, KeyLogWriter: w})
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	}
 	return opts, nil
@@ -81,10 +95,15 @@ func DialmTLSCredsOpts(certFile, keyFile, caFile string) ([]grpc.DialOption, err
 	if ok := certPool.AppendCertsFromPEM(bs); !ok {
 		return nil, fmt.Errorf("failed to append client certs")
 	}
+	w, err := os.OpenFile("mykeys.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failt to create key file")
+	}
 	tlsConfig := &tls.Config{
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		Certificates: []tls.Certificate{certificate},
 		RootCAs:      certPool, // use RootCAs to avoid "certificate signed by unknown authority" error.
+		KeyLogWriter: w,
 	}
 	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	return opts, nil
